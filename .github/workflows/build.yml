@@ -1,0 +1,58 @@
+name: Build PanVK for Android
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip ninja-build bison flex libexpat1-dev gettext pkg-config
+
+      - name: Install Meson
+        run: pip3 install meson
+
+      - name: Clone Mesa Source
+        run: |
+          git clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git ~/mesa
+
+      - name: Setup Android NDK and Build
+        run: |
+          cd ~/mesa
+          meson setup builddir \
+            -Dvulkan-drivers=panfrost \
+            -Dplatforms="" \
+            -Dgallium-drivers= \
+            -Dgles1=disabled \
+            -Dgles2=disabled \
+            -Dopengl=false \
+            -Degl=disabled \
+            -Dbuildtype=release \
+            -Dc_args="-Wno-error=implicit-function-declaration" \
+            -Dcpp_args="-Wno-error=implicit-function-declaration" \
+            -Dc_link_args="-Wl,--allow-shlib-undefined" \
+            -Dcpp_link_args="-Wl,--allow-shlib-undefined" \
+            -Db_lundef=false
+
+          ninja -C builddir
+
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p ~/artifact/driver/lib/aarch64
+          cp ~/mesa/builddir/src/panfrost/vulkan/libvulkan_panfrost.so ~/artifact/driver/lib/aarch64/
+          echo '{"schema_version": 1, "name": "PanVK Custom (Cloud)", "package_version": "1", "issuer": "User", "drivers": [{"device_apis": ["vulkan"], "library_name": "libvulkan_panfrost.so"}]}' > ~/artifact/driver/meta.json
+          cd ~/artifact/driver && zip -r ../PanVK_Cloud.zip *
+
+      - name: Upload Driver Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: PanVK_Cloud_Driver
+          path: /home/runner/artifact/PanVK_Cloud.zip
